@@ -1,5 +1,5 @@
 # beanfarmer
-Benchmarking for a CUDA based beamformer implementation
+Benchmarking for a CUDA based filterbanking beamformer implementation
 
 To use, run beanfarmer.py with any of the following arguments.  
 
@@ -16,10 +16,6 @@ optional arguments:
   --nchannels NCHANNELS
                         Number of channels
   --nchunks NCHUNKS     Number of sample chunks to process in a batch
-  --nwarps_per_block NWARPS_PER_BLOCK
-                        Number of warps per block. [NOTE: Currently there is a
-                        bug that means tests only pass when this is set to
-                        32.]
   --check_correctness   Verify results against C++ implementation.
   --channel_bandwidth CHANNEL_BANDWIDTH
                         Bandwidth of each channel being processed. Used to
@@ -36,5 +32,11 @@ optional arguments:
 Typical example:
 
 ~~~~
-python beanfarmer.py --nchannels=1 --verbose --nbeams=128,512 --nantennas=32,48,64 --nchunks=100 --npol=2 
+python beanfarmer.py --nchannels=1 --verbose --nbeams=128,512 --nantennas=32,48,64 --nchunks=2 --npol=2 --check_correctness
+~~~~
+
+This will execute beanfarmer with 1 channel, 2 polarisations, 2 chunks of time and will loop through all combinations of beams and antennas. This will also compare the beanfarmer GPU kernel output against and idealised C++ beamformer implementation. The above example will not push the performance of the code. For a more realistic performance measure try something like:
+
+~~~~
+python beanfarmer.py --nchannels=64 --nbeams=128,512,1024 --nantennas=48,64,128 --nchunks=100 --npol=2
 ~~~~
