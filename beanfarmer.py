@@ -23,7 +23,6 @@ Maintainer: Ewan D. Barr (ebarr@mpifr-bonn.mpg.de)
 """
 
 import sys
-import time
 from subprocess import Popen,PIPE
 
 DEBUG = False
@@ -176,7 +175,6 @@ def main(args):
                                 params.check_correctness = args.check_correctness
                                 params.niterations = args.niterations
                                 compile(params)
-                                time.sleep(20)
                                 elapsed_time = run()
                                 if elapsed_time is None: raise Exception("No timing output for kernel run.")
                                 seconds_per_run = (elapsed_time*1e-3)/params.niterations
