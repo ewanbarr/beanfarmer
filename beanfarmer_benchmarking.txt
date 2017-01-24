@@ -1,0 +1,2 @@
+#Nants  #Npol  #Nchans  #Naccumulate  #Nchunks  #Nthreads  #Nops  #Benchmark(s)  #Performance(Tops/s)  #Realtime_fraction
+32	2	64	16	100	1024	8.32307e+08	0.00115254	0.72215	0.00470435

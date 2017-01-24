@@ -203,8 +203,7 @@ void bf_aptf_general_k(
             int r = xx - yy;
             int i = xy + yx;
             //be careful of overflow
-            amplitude = sqrtf((float)(r*r + i*i));
-            power += amplitude * amplitude;
+	    power += (float)(r*r + i*i);
         }
     }
 
@@ -270,16 +269,13 @@ void c_reference_int8
 			}
 		      int r = accumulator.x;
 		      int i = accumulator.y;
-		      float amplitude = sqrtf((float)(r*r + i*i));//cuCabsf(accumulator);
-		      power += (amplitude * amplitude);
+		      power += (float)(r*r + i*i);
 		    }
 		}
 	      int tbf_powers_idx = NSAMPLES/NACCUMULATE * NBEAMS * channel_idx
 		+ NSAMPLES/NACCUMULATE * beam_idx
 		+ sample_idx/NACCUMULATE;
 	      tbf_powers[tbf_powers_idx] = power;
-
-	      
 	    }
 	}
     }
