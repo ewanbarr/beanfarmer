@@ -40,3 +40,5 @@ This will execute beanfarmer with 1 channel, 2 polarisations, 2 chunks of time a
 ~~~~
 python beanfarmer.py --nchannels=64 --nbeams=128,512,1024 --nantennas=48,64,128 --nchunks=100 --npol=2
 ~~~~
+
+Note: The beanfarmer.py script is written in Python3.
