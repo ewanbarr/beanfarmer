@@ -180,12 +180,7 @@ void bf_aptf_general_k(
                 shared_antennas[warp_idx][lane_idx] = int2_transpose(aptf_voltages[aptf_voltages_partial_idx + lane_idx + NANTENNAS/4 * pol_idx]);
             }
 
-	    // I don't understand why this __threadfence_block is needed, but it is.
-	    // Everything in the kernel should be warp synchronous but for some reason removing
-	    // this threadfence causes tests to fail. I assume this has something to do with the
-	    // branching above. I was under the impression that __threadfence_block basically didn't
-	    // do anything, but it is needed for correctness here and results in a minor performance loss.
-	    // Substituting in a syncthreads causes significant performance loss.
+	    /*Required to synchronise across all the blocks*/
 	    __threadfence_block();
 	    
             for (antenna_group_idx=0; antenna_group_idx < NANTENNAS/4; ++antenna_group_idx)
