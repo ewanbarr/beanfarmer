@@ -17,9 +17,9 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE. 
+SOFTWARE.
 
-Maintainer: Ewan D. Barr (ebarr@mpifr-bonn.mpg.de) 
+Maintainer: Ewan D. Barr (ebarr@mpifr-bonn.mpg.de)
 */
 
 #include "cuda_tools.cuh"
@@ -56,7 +56,7 @@ struct char2x4
 __forceinline__ __device__
 void dp4a(int &c, const int &a, const int &b) {
 #if __CUDA_ARCH__ >= 610
-  asm("dp4a.s32.s32 %0, %1, %2, %3;" : "+r"(c) : "r"(a), "r"(b), "r"(c)); 
+  asm("dp4a.s32.s32 %0, %1, %2, %3;" : "+r"(c) : "r"(a), "r"(b), "r"(c));
 #else
   char4 &a4 = *((char4*)&a);
   char4 &b4 = *((char4*)&b);
@@ -114,7 +114,7 @@ void bf_aptf_general_k(
     /**
      * Allocated shared memory to store beamforming weights and temporary space for antenna data.
      */
-    __shared__ int2 shared_apb_weights[NANTENNAS/4][NPOL][WARP_SIZE];
+    __shared__ int2 shared_apb_weights[NANTENNAS/4][WARP_SIZE];
     __shared__ int2 shared_antennas[NTHREADS/WARP_SIZE][NANTENNAS/4];
     int const warp_idx = threadIdx.x / 0x20;
     int const lane_idx = threadIdx.x & 0x1f;
@@ -128,7 +128,7 @@ void bf_aptf_general_k(
      * Complex multiply accumulators
      */
     int xx, yy, xy, yx;
-    
+
     float amplitude, power = 0.0f;
     int2 antennas, weights;
     int antenna_group_idx;
@@ -136,20 +136,17 @@ void bf_aptf_general_k(
     /**
      * Here we load all the beamforming weights neccessary for this block. Implicit assumption here is that we do not
      * need to change the weights over the timescale of the data processed in one block. This is almost certainly OK
-     * if the input data has already been rotated to telescope boresight and we are only applying parallactic angle  
+     * if the input data has already been rotated to telescope boresight and we are only applying parallactic angle
      * tracking updates.
-     * 
-     * The global load is coalesced 8-byte (vectorised int2). 
+     *
+     * The global load is coalesced 8-byte (vectorised int2).
      */
-    int const apbf_weights_offset = NANTENNAS/4 * NPOL * (NBEAMS * blockIdx.y + (WARP_SIZE * blockIdx.z + warp_idx));
-
-    for (int pol_idx=0; pol_idx < NPOL; ++pol_idx)
+    int const apbf_weights_offset = NANTENNAS/4 * (NBEAMS * blockIdx.y + (WARP_SIZE * blockIdx.z + warp_idx));
+    for (antenna_group_idx = lane_idx; antenna_group_idx < NANTENNAS/4; antenna_group_idx+=WARP_SIZE)
     {
-        for (antenna_group_idx = lane_idx; antenna_group_idx < NANTENNAS/4; antenna_group_idx+=WARP_SIZE)
-        {
-	    shared_apb_weights[antenna_group_idx][pol_idx][warp_idx] = int2_transpose(apbf_weights[apbf_weights_offset + pol_idx * NANTENNAS/4 + antenna_group_idx]);
-        }
+      shared_apb_weights[antenna_group_idx][warp_idx] = int2_transpose(apbf_weights[apbf_weights_offset + antenna_group_idx]);
     }
+
     //wait for all weights to load.
     __syncthreads();
 
@@ -170,31 +167,31 @@ void bf_aptf_general_k(
             xy = 0;
             yx = 0;
 
-	    /** 
-	     * Load all antennas antennas required for this sample into shared memory.
-	     * Without an outer loop to allow for more antennas (which would also require more shared memory),
-	     * this kernel is limited to a max of 32 * 4 = 128 antennas in a sub-array.
-	     */ 
+        /**
+         * Load all antennas antennas required for this sample into shared memory.
+         * Without an outer loop to allow for more antennas (which would also require more shared memory),
+         * this kernel is limited to a max of 32 * 4 = 128 antennas in a sub-array.
+         */
             if (lane_idx < NANTENNAS/4)
             {
                 shared_antennas[warp_idx][lane_idx] = int2_transpose(aptf_voltages[aptf_voltages_partial_idx + lane_idx + NANTENNAS/4 * pol_idx]);
             }
 
-	    // I don't understand why this __threadfence_block is needed, but it is.
-	    // Everything in the kernel should be warp synchronous but for some reason removing
-	    // this threadfence causes tests to fail. I assume this has something to do with the
-	    // branching above. I was under the impression that __threadfence_block basically didn't
-	    // do anything, but it is needed for correctness here and results in a minor performance loss.
-	    // Substituting in a syncthreads causes significant performance loss.
-	    __threadfence_block();
-	    
+        // I don't understand why this __threadfence_block is needed, but it is.
+        // Everything in the kernel should be warp synchronous but for some reason removing
+        // this threadfence causes tests to fail. I assume this has something to do with the
+        // branching above. I was under the impression that __threadfence_block basically didn't
+        // do anything, but it is needed for correctness here and results in a minor performance loss.
+        // Substituting in a syncthreads causes significant performance loss.
+        __threadfence_block();
+
             for (antenna_group_idx=0; antenna_group_idx < NANTENNAS/4; ++antenna_group_idx)
             {
-	        //broadcast load 4 antennas
+            //broadcast load 4 antennas
                 antennas = shared_antennas[warp_idx][antenna_group_idx];
-		//load corresponding 4 weights
-                weights = shared_apb_weights[antenna_group_idx][pol_idx][lane_idx];
-		//dp4a multiply add 
+        //load corresponding 4 weights
+                weights = shared_apb_weights[antenna_group_idx][lane_idx];
+        //dp4a multiply add
                 dp4a(xx,weights.x,antennas.x);
                 dp4a(yy,weights.y,antennas.y);
                 dp4a(xy,weights.x,antennas.y);
@@ -203,7 +200,7 @@ void bf_aptf_general_k(
             int r = xx - yy;
             int i = xy + yx;
             //be careful of overflow
-	    power += (float)(r*r + i*i);
+        power += (float)(r*r + i*i);
         }
     }
 
@@ -222,7 +219,7 @@ void bf_aptf_general_k(
 
 
 /**
- * Reference model implementation of beamforming used for correctness testing of  
+ * Reference model implementation of beamforming used for correctness testing of
  * kernel output.
  */
 void c_reference_int8
@@ -237,47 +234,46 @@ void c_reference_int8
     {
       printf("[C reference model]: processing channel %d\n",channel_idx);
       for (int sample_idx = 0; sample_idx < NSAMPLES; sample_idx+=NACCUMULATE)
-	{
-	  for (int beam_idx = 0; beam_idx < NBEAMS; ++beam_idx)
-	    {
-	      float power = 0.0f;
-	      for (int sample_offset = 0; sample_offset < NACCUMULATE; ++sample_offset)
-		{
-		  for (int pol_idx = 0; pol_idx < NPOL; ++pol_idx)
-		    {
-		      int2 accumulator = {0,0}; 
-		      for (int antenna_idx = 0; antenna_idx < NANTENNAS; ++antenna_idx)
-			{
-			  int aptf_voltages_idx = NANTENNAS * NPOL * NSAMPLES * channel_idx
-			    + NANTENNAS * NPOL * (sample_idx + sample_offset)
-			    + NANTENNAS * pol_idx
-			    + antenna_idx;
-			  ComplexInt8 datum = aptf_voltages[aptf_voltages_idx];
-			  
-			  int apbf_weights_idx = NANTENNAS * NPOL * NBEAMS * channel_idx
-			    + NANTENNAS * NPOL * beam_idx
-			    + NANTENNAS * pol_idx
-			    + antenna_idx;
-			  ComplexInt8 weight = apbf_weights[apbf_weights_idx];
-			  
-			  xx = datum.x * weight.x;
-			  yy = datum.y * weight.y;
-			  xy = datum.x * weight.y;
-			  yx = datum.y * weight.x;
-			  accumulator.x += xx - yy;
-			  accumulator.y += xy + yx;
-			}
-		      int r = accumulator.x;
-		      int i = accumulator.y;
-		      power += (float)(r*r + i*i);
-		    }
-		}
-	      int tbf_powers_idx = NSAMPLES/NACCUMULATE * NBEAMS * channel_idx
-		+ NSAMPLES/NACCUMULATE * beam_idx
-		+ sample_idx/NACCUMULATE;
-	      tbf_powers[tbf_powers_idx] = power;
-	    }
-	}
+    {
+      for (int beam_idx = 0; beam_idx < NBEAMS; ++beam_idx)
+        {
+          float power = 0.0f;
+          for (int sample_offset = 0; sample_offset < NACCUMULATE; ++sample_offset)
+        {
+          for (int pol_idx = 0; pol_idx < NPOL; ++pol_idx)
+            {
+              int2 accumulator = {0,0};
+              for (int antenna_idx = 0; antenna_idx < NANTENNAS; ++antenna_idx)
+            {
+              int aptf_voltages_idx = NANTENNAS * NPOL * NSAMPLES * channel_idx
+                + NANTENNAS * NPOL * (sample_idx + sample_offset)
+                + NANTENNAS * pol_idx
+                + antenna_idx;
+              ComplexInt8 datum = aptf_voltages[aptf_voltages_idx];
+
+              int apbf_weights_idx = NANTENNAS * NBEAMS * channel_idx
+                + NANTENNAS * beam_idx
+                + antenna_idx;
+              ComplexInt8 weight = apbf_weights[apbf_weights_idx];
+
+              xx = datum.x * weight.x;
+              yy = datum.y * weight.y;
+              xy = datum.x * weight.y;
+              yx = datum.y * weight.x;
+              accumulator.x += xx - yy;
+              accumulator.y += xy + yx;
+            }
+              int r = accumulator.x;
+              int i = accumulator.y;
+              power += (float)(r*r + i*i);
+            }
+        }
+          int tbf_powers_idx = NSAMPLES/NACCUMULATE * NBEAMS * channel_idx
+        + NSAMPLES/NACCUMULATE * beam_idx
+        + sample_idx/NACCUMULATE;
+          tbf_powers[tbf_powers_idx] = power;
+        }
+    }
     }
 }
 
@@ -286,10 +282,10 @@ bool is_same(float* a, float*b, std::size_t size, float tolerance)
   for (std::size_t idx = 0; idx < size; ++idx)
     {
       if (abs((a[idx]-b[idx])/a[idx]) >= tolerance)
-	{
-	  std::cout << "Expected " << a[idx] << " got " << b[idx] << "\n";
-	  return false;
-	}
+    {
+      std::cout << "Expected " << a[idx] << " got " << b[idx] << "\n";
+      return false;
+    }
     }
   return true;
 }
@@ -323,7 +319,7 @@ int main()
         + aptf_voltages_size*sizeof(ComplexInt8))/1.0e9
     << "GB \n";
     std::cout << "Shared memory required: " << shared_mem_size << " bytes \n";
-    
+
 
     /**
      * Currently we are only considering 4k mode on the channeliser
@@ -353,7 +349,7 @@ int main()
     thrust::device_vector<ComplexInt8> pta_vector(aptf_voltages_size);
     thrust::device_vector<ComplexInt8> weights_vector(apbf_weights_size);
 #endif //TEST_CORRECTNESS
-    
+
     thrust::device_vector<float> output_vector(tbf_powers_size,0.0f);
     ComplexInt8 const* aptf_voltages = thrust::raw_pointer_cast(pta_vector.data());
     ComplexInt8 const* apbf_weights = thrust::raw_pointer_cast(weights_vector.data());
@@ -380,7 +376,7 @@ int main()
     float milliseconds = 0;
     cudaEventElapsedTime(&milliseconds, start, stop);
     std::cout << "Total kernel duration (ms): " << milliseconds << "\n";
-    
+
 #ifdef TEST_CORRECTNESS
     std::cout << "Testing correctness...\n";
     thrust::host_vector<float> gpu_output = output_vector;
@@ -391,7 +387,7 @@ int main()
       std::cout << "FAILED!\n";
     else
       std::cout << "PASSED!\n";
-    
+
 #endif
 
     return 0;
