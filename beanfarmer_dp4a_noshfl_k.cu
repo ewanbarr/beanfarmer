@@ -89,13 +89,15 @@ int2 int2_transpose(int2 const &input)
  *
  * @param      aptf_voltages  Raw voltages in antenna, polarisation, time, frequency order (fastest to slowest)
  * @param      apbf_weights   Beamforming weights in antenna, time, beam, frequency order (fastest to slowest)
- * @param      tbf_powers     Output detected integrated powers in time, beam, frequency order (fastest to slowest)
+ * @param      ftb_powers     Output detected integrated powers in frequency, time, beam order (fastest to slowest)
  */
 __global__
 void bf_aptf_general_k(
     int2 const* __restrict__ aptf_voltages,
     int2 const* __restrict__ apbf_weights,
-    float* __restrict__ tbf_powers)
+    int8_t* __restrict__ ftb_powers,
+    float output_scale,
+    float output_offset)		       
 {
     /**
      * Perform compile time checks on requested beamforming parameters.
@@ -129,7 +131,7 @@ void bf_aptf_general_k(
      */
     int xx, yy, xy, yx;
 
-    float amplitude, power = 0.0f;
+    float power = 0.0f;
     int2 antennas, weights;
     int antenna_group_idx;
 
@@ -211,10 +213,18 @@ void bf_aptf_general_k(
      * as the total volume of data being written out is a factor of NACCUMULATE * NANTENNAS / WARP_SIZE
      * smaller than the input (e.g. for 64 antennas and 16 integrated samples this is a factor of 32).
      */
+
+    /** ORIGINAL
     int output_idx = (NWARPS_PER_BLOCK * gridDim.x) * (NBEAMS * blockIdx.y
         + (start_beam_idx+lane_idx))
     + sample_offset / NACCUMULATE;
-    tbf_powers[output_idx] = power;
+    ftb_powers[output_idx] = power;
+    */
+    
+    //Want output in BTF order
+    int output_idx = gridDim.y * (((start_beam_idx+lane_idx) * NWARPS_PER_BLOCK * gridDim.x)
+				  + (sample_offset / NACCUMULATE)) + blockIdx.y;
+    ftb_powers[output_idx] = (int8_t) ((power - output_offset) / output_scale);
 }
 
 
@@ -226,7 +236,9 @@ void c_reference_int8
 (
  ComplexInt8 const* __restrict__ aptf_voltages,
  ComplexInt8 const* __restrict__ apbf_weights,
- float* __restrict__ tbf_powers
+ int8_t* __restrict__ ftb_powers,
+ float scale,
+ float offset
 )
 {
   int xx,yy,xy,yx;
@@ -239,53 +251,53 @@ void c_reference_int8
         {
           float power = 0.0f;
           for (int sample_offset = 0; sample_offset < NACCUMULATE; ++sample_offset)
-        {
-          for (int pol_idx = 0; pol_idx < NPOL; ++pol_idx)
-            {
-              int2 accumulator = {0,0};
-              for (int antenna_idx = 0; antenna_idx < NANTENNAS; ++antenna_idx)
-            {
-              int aptf_voltages_idx = NANTENNAS * NPOL * NSAMPLES * channel_idx
-                + NANTENNAS * NPOL * (sample_idx + sample_offset)
-                + NANTENNAS * pol_idx
-                + antenna_idx;
-              ComplexInt8 datum = aptf_voltages[aptf_voltages_idx];
+	    {
+	      for (int pol_idx = 0; pol_idx < NPOL; ++pol_idx)
+		{
+		  int2 accumulator = {0,0};
+		  for (int antenna_idx = 0; antenna_idx < NANTENNAS; ++antenna_idx)
+		    {
+		      int aptf_voltages_idx = NANTENNAS * NPOL * NSAMPLES * channel_idx
+			+ NANTENNAS * NPOL * (sample_idx + sample_offset)
+			+ NANTENNAS * pol_idx
+			+ antenna_idx;
+		      ComplexInt8 datum = aptf_voltages[aptf_voltages_idx];
+		      
+		      int apbf_weights_idx = NANTENNAS * NBEAMS * channel_idx
+			+ NANTENNAS * beam_idx
+			+ antenna_idx;
+		      ComplexInt8 weight = apbf_weights[apbf_weights_idx];
 
-              int apbf_weights_idx = NANTENNAS * NBEAMS * channel_idx
-                + NANTENNAS * beam_idx
-                + antenna_idx;
-              ComplexInt8 weight = apbf_weights[apbf_weights_idx];
-
-              xx = datum.x * weight.x;
-              yy = datum.y * weight.y;
-              xy = datum.x * weight.y;
-              yx = datum.y * weight.x;
-              accumulator.x += xx - yy;
-              accumulator.y += xy + yx;
-            }
-              int r = accumulator.x;
-              int i = accumulator.y;
-              power += (float)(r*r + i*i);
-            }
-        }
-          int tbf_powers_idx = NSAMPLES/NACCUMULATE * NBEAMS * channel_idx
-        + NSAMPLES/NACCUMULATE * beam_idx
-        + sample_idx/NACCUMULATE;
-          tbf_powers[tbf_powers_idx] = power;
+		      xx = datum.x * weight.x;
+		      yy = datum.y * weight.y;
+		      xy = datum.x * weight.y;
+		      yx = datum.y * weight.x;
+		      accumulator.x += xx - yy;
+		      accumulator.y += xy + yx;
+		    }
+		  int r = accumulator.x;
+		  int i = accumulator.y;
+		  power += (float)(r*r + i*i);
+		}
+	    }
+	  int ftb_powers_idx = beam_idx * NSAMPLES/NACCUMULATE * NCHANNELS
+	    + sample_idx/NACCUMULATE * NCHANNELS
+	    + channel_idx;
+          ftb_powers[ftb_powers_idx] = (int8_t) ((power - offset)/scale);
         }
     }
     }
 }
 
-bool is_same(float* a, float*b, std::size_t size, float tolerance)
+bool is_same(int8_t* a, int8_t* b, std::size_t size, float tolerance)
 {
   for (std::size_t idx = 0; idx < size; ++idx)
     {
-      if (abs((a[idx]-b[idx])/a[idx]) >= tolerance)
-    {
-      std::cout << "Expected " << a[idx] << " got " << b[idx] << "\n";
-      return false;
-    }
+      if (abs(a[idx]-b[idx]) > 0)
+	{
+	  std::cout << "Expected " << a[idx] << " got " << b[idx] << "\n";
+	  return false;
+	}
     }
   return true;
 }
@@ -308,13 +320,13 @@ int main()
 {
     std::size_t aptf_voltages_size = NPOL * NSAMPLES * NANTENNAS * NCHANNELS;
     std::size_t apbf_weights_size = NANTENNAS * NPOL * NBEAMS * NCHANNELS;
-    std::size_t tbf_powers_size = NSAMPLES/NACCUMULATE * NBEAMS * NCHANNELS;
+    std::size_t ftb_powers_size = NSAMPLES/NACCUMULATE * NBEAMS * NCHANNELS;
     std::size_t shared_mem_size = sizeof(int2) * NANTENNAS/4 * ( NPOL * WARP_SIZE + NTHREADS/WARP_SIZE);
     std::cout << "PTA array size: " << aptf_voltages_size << "\n";
     std::cout << "Weights size: " << apbf_weights_size << "\n";
-    std::cout << "output size: " << tbf_powers_size << "\n";
+    std::cout << "output size: " << ftb_powers_size << "\n";
     std::cout << "Global memory required: "
-    << (tbf_powers_size * sizeof(float)
+    << (ftb_powers_size * sizeof(int8_t)
         + apbf_weights_size*sizeof(char2)
         + aptf_voltages_size*sizeof(ComplexInt8))/1.0e9
     << "GB \n";
@@ -350,10 +362,10 @@ int main()
     thrust::device_vector<ComplexInt8> weights_vector(apbf_weights_size);
 #endif //TEST_CORRECTNESS
 
-    thrust::device_vector<float> output_vector(tbf_powers_size,0.0f);
+    thrust::device_vector<int8_t> output_vector(ftb_powers_size,0.0f);
     ComplexInt8 const* aptf_voltages = thrust::raw_pointer_cast(pta_vector.data());
     ComplexInt8 const* apbf_weights = thrust::raw_pointer_cast(weights_vector.data());
-    float* tbf_powers = thrust::raw_pointer_cast(output_vector.data());
+    int8_t* ftb_powers = thrust::raw_pointer_cast(output_vector.data());
     dim3 grid(NSAMPLES/(NWARPS_PER_BLOCK*NACCUMULATE), NCHANNELS, NBEAMS/WARP_SIZE);
 
     cudaEvent_t start, stop;
@@ -363,13 +375,13 @@ int main()
     std::cout << "Executing warm up\n";
     //Warp up
     for (int jj=0; jj<NITERATIONS; ++jj)
-      bf_aptf_general_k<<<grid,NTHREADS>>>((int2*) aptf_voltages, (int2*) apbf_weights, tbf_powers);
+      bf_aptf_general_k<<<grid,NTHREADS>>>((int2*) aptf_voltages, (int2*) apbf_weights, (int8_t*) ftb_powers, 100.0, 10.0 );
     CUDA_ERROR_CHECK(cudaDeviceSynchronize());
 
     std::cout << "Starting benchmarking\n";
     cudaEventRecord(start);
     for (int ii=0; ii<NITERATIONS; ++ii)
-      bf_aptf_general_k<<<grid,NTHREADS>>>((int2*) aptf_voltages, (int2*) apbf_weights, tbf_powers);
+      bf_aptf_general_k<<<grid,NTHREADS>>>((int2*) aptf_voltages, (int2*) apbf_weights, (int8_t*) ftb_powers, 100.0, 10.0);
     CUDA_ERROR_CHECK(cudaDeviceSynchronize());
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
@@ -379,10 +391,10 @@ int main()
 
 #ifdef TEST_CORRECTNESS
     std::cout << "Testing correctness...\n";
-    thrust::host_vector<float> gpu_output = output_vector;
-    thrust::host_vector<float> cpu_output(tbf_powers_size);
+    thrust::host_vector<int8_t> gpu_output = output_vector;
+    thrust::host_vector<int8_t> cpu_output(ftb_powers_size);
     CUDA_ERROR_CHECK(cudaDeviceSynchronize());
-    c_reference_int8(pta_vector_h.data(),weights_vector_h.data(),cpu_output.data());
+    c_reference_int8(pta_vector_h.data(),weights_vector_h.data(),cpu_output.data(), 100.0, 10.0);
     if (!is_same(cpu_output.data(),gpu_output.data(), NSAMPLES/NACCUMULATE*NBEAMS*NCHANNELS, 0.001))
       std::cout << "FAILED!\n";
     else
