@@ -49,7 +49,8 @@ __global__
 void icbf_aptf_general_k
 (
  char2 const* __restrict__ aptf_voltages,
- float* __restrict__ tf_powers)
+ float* __restrict__ tf_powers,
+ float const* __restrict__ weights)
 {
   /**
    * Each warp reads all the data it requires and performs detection followed
@@ -62,22 +63,31 @@ void icbf_aptf_general_k
 		"Number of threads must be an integer multiple of WARP_SIZE.");
 
   volatile __shared__ float temp[WARP_SIZE][WARP_SIZE];
+  volatile __shared__ float shared_weights[NANTENNAS];
   int const warp_idx = threadIdx.x / 0x20;
   int const lane_idx = threadIdx.x & 0x1f;
   int sample_offset = NACCUMULATE * (blockIdx.x * NWARPS_PER_BLOCK + warp_idx);
   int aptf_voltages_partial_idx = NANTENNAS * NPOL * (NSAMPLES * blockIdx.y + sample_offset);
+
+
+  for (int antenna_idx = threadIdx.x; antenna_idx < NANTENNAS; antenna_idx += blockDim.x)
+  {
+    shared_weights[antenna_idx] = weights[antenna_idx];
+  }
+
 
   //Accumulators for 8-bit complex detection and additions
   int xx = 0, yy = 0;
 
   for (int offset = lane_idx; offset < NANTENNAS*NPOL*NACCUMULATE; offset += WARP_SIZE)
     {
+      antenna_idx = offset % NANTENNAS;
       char2 ant = aptf_voltages[aptf_voltages_partial_idx  + offset];
       xx += ant.x * ant.x;
       yy += ant.y * ant.y;
     }
   //Form power and write to shared memory
-  temp[warp_idx][lane_idx] = (float)(xx + yy);
+  temp[warp_idx][lane_idx] = (float)(xx + yy) * shared_weights[antenna_idx];
   __syncthreads();
 
   //Warp reduce
@@ -105,7 +115,8 @@ void icbf_aptf_general_k
 void icbf_reference_cpp
 (
  ComplexInt8 const* __restrict__ aptf_voltages,
- float* __restrict__ tf_powers)
+ float* __restrict__ tf_powers,
+ float const* __restrict__ weights)
 {
   for (int channel_idx = 0; channel_idx < NCHANNELS; ++channel_idx)
     {
@@ -124,7 +135,7 @@ void icbf_reference_cpp
 			+ NANTENNAS * pol_idx
 			+ antenna_idx;
 		      ComplexInt8 ant = aptf_voltages[aptf_voltages_idx];
-		      power += ant.x*ant.x + ant.y*ant.y;
+		      power += weights[antenna_idx] * (ant.x*ant.x + ant.y*ant.y);
 		    }
 		}
 	    }
@@ -191,15 +202,21 @@ int main()
   std::cout << "Generating host test vectors...\n";
   ComplexInt8 default_value = {0,0};
   thrust::host_vector<ComplexInt8> pta_vector_h(aptf_voltages_size,default_value);
+  thrust::host_vector<float> weights_vector_h(NANTENNAS, 1.0f);
   populate<ComplexInt8>(pta_vector_h.data(),aptf_voltages_size,-10,10);
+  weights_vector_h[NANTENNAS/2] = 0.0f;
+  weights_vector_h[NANTENNAS/4] = 0.0f;
   thrust::device_vector<ComplexInt8> pta_vector = pta_vector_h;
+  thrust::device_vector<float> weights_vector = weights_vector_h;
 #else
   std::cout << "NOT generating host test vectors...\n";
   thrust::device_vector<ComplexInt8> pta_vector(aptf_voltages_size);
+  thrust::device_vector<float> weights_vector(NANTENNAS, 1.0f);
 #endif //TEST_CORRECTNESS
 
   thrust::device_vector<float> output_vector(tbf_powers_size,0.0f);
   ComplexInt8 const* aptf_voltages = thrust::raw_pointer_cast(pta_vector.data());
+  float const* weights_ptr = thrust::raw_pointer_cast(weights_vector.data());
   float* tbf_powers = thrust::raw_pointer_cast(output_vector.data());
   dim3 grid(NSAMPLES/(NWARPS_PER_BLOCK*NACCUMULATE), NCHANNELS);
   cudaEvent_t start, stop;
@@ -209,13 +226,13 @@ int main()
   std::cout << "Executing warm up\n";
   //Warm up
   for (int jj=0; jj<NITERATIONS; ++jj)
-    icbf_aptf_general_k<<<grid,NTHREADS>>>((char2*)aptf_voltages,tbf_powers);
+    icbf_aptf_general_k<<<grid,NTHREADS>>>((char2*)aptf_voltages, tbf_powers, weights_ptr);
   CUDA_ERROR_CHECK(cudaDeviceSynchronize());
 
   std::cout << "Starting benchmarking\n";
   cudaEventRecord(start);
   for (int ii=0; ii<NITERATIONS; ++ii)
-    icbf_aptf_general_k<<<grid,NTHREADS>>>((char2*)aptf_voltages,tbf_powers);
+    icbf_aptf_general_k<<<grid,NTHREADS>>>((char2*)aptf_voltages, tbf_powers, weights_ptr);
   CUDA_ERROR_CHECK(cudaDeviceSynchronize());
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
@@ -228,7 +245,7 @@ int main()
   thrust::host_vector<float> gpu_output = output_vector;
   thrust::host_vector<float> cpu_output(tbf_powers_size);
   CUDA_ERROR_CHECK(cudaDeviceSynchronize());
-  icbf_reference_cpp(pta_vector_h.data(),cpu_output.data());
+  icbf_reference_cpp(pta_vector_h.data(), cpu_output.data(), weights_vector_h.data());
   if (!is_same(cpu_output.data(),gpu_output.data(), NSAMPLES/NACCUMULATE*NCHANNELS, 0.001))
     std::cout << "FAILED!\n";
   else
