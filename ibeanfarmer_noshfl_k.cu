@@ -81,13 +81,14 @@ void icbf_aptf_general_k
 
   for (int offset = lane_idx; offset < NANTENNAS*NPOL*NACCUMULATE; offset += WARP_SIZE)
     {
-      antenna_idx = offset % NANTENNAS;
+      int antenna_idx = offset % NANTENNAS;
+      float weight = shared_weights[antenna_idx];
       char2 ant = aptf_voltages[aptf_voltages_partial_idx  + offset];
-      xx += ant.x * ant.x;
-      yy += ant.y * ant.y;
+      xx += (ant.x * ant.x) * weight;
+      yy += (ant.y * ant.y) * weight;
     }
   //Form power and write to shared memory
-  temp[warp_idx][lane_idx] = (float)(xx + yy) * shared_weights[antenna_idx];
+  temp[warp_idx][lane_idx] = (float)(xx + yy);
   __syncthreads();
 
   //Warp reduce
