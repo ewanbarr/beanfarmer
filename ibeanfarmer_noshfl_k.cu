@@ -142,6 +142,7 @@ bool is_same(float* a, float*b, std::size_t size, float tolerance)
       if (abs((a[idx]-b[idx])/a[idx]) >= tolerance)
 	{
 	  std::cout << "Expected " << a[idx] << " got " << b[idx] << "\n";
+	  std::cout << "Error at index " << idx << "\n";
 	  return false;
 	}
     }
@@ -200,7 +201,7 @@ int main()
   thrust::device_vector<float> output_vector(tbf_powers_size,0.0f);
   ComplexInt8 const* aptf_voltages = thrust::raw_pointer_cast(pta_vector.data());
   float* tbf_powers = thrust::raw_pointer_cast(output_vector.data());
-  dim3 grid(2*NSAMPLES/(NWARPS_PER_BLOCK*NACCUMULATE), NCHANNELS);
+  dim3 grid(NSAMPLES/(NWARPS_PER_BLOCK*NACCUMULATE), NCHANNELS);
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
   cudaEventCreate(&stop);

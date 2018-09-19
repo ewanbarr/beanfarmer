@@ -4,3 +4,5 @@
 *.ptx
 *.cubin
 *.fatbin
+beanfarmer_benchmarking.txt
+params.h
