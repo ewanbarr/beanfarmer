@@ -17,9 +17,9 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE. 
+SOFTWARE.
 
-Maintainer: Ewan D. Barr (ebarr@mpifr-bonn.mpg.de) 
+Maintainer: Ewan D. Barr (ebarr@mpifr-bonn.mpg.de)
 */
 #include "params.h"
 #include "cuda_tools.cuh"
@@ -39,7 +39,6 @@ struct ComplexInt8
   int8_t y;
 };
 
-
 /**
  * @brief      Perform beamforming followed by detection and integration in time.
  *
@@ -49,40 +48,36 @@ struct ComplexInt8
 __global__
 void icbf_aptf_general_k
 (
- char4 const* __restrict__ aptf_voltages,
+ char2 const* __restrict__ aptf_voltages,
  float* __restrict__ tf_powers)
 {
   /**
-   * Each warp reads all the data it requires and performs detection followed 
-   * by a warp reduce. The resultant sums are transposed and the first warp of 
+   * Each warp reads all the data it requires and performs detection followed
+   * by a warp reduce. The resultant sums are transposed and the first warp of
    * each block is left to write all results back to global memory.
-   */ 
+   */
   static_assert(NSAMPLES%NSAMPLES_PER_BLOCK==0,
 		"Kernel can only process a multiple of (NWARPS_PER_BLOCK * NACCUMULATE) samples.");
   static_assert(NTHREADS%WARP_SIZE==0,
 		"Number of threads must be an integer multiple of WARP_SIZE.");
-  static_assert(NANTENNAS%2==0,
-		"Number of antennas must be an integer multiple of 2.");
-  
+
   volatile __shared__ float temp[WARP_SIZE][WARP_SIZE];
   int const warp_idx = threadIdx.x / 0x20;
   int const lane_idx = threadIdx.x & 0x1f;
   int sample_offset = NACCUMULATE * (blockIdx.x * NWARPS_PER_BLOCK + warp_idx);
-  int aptf_voltages_partial_idx = NANTENNAS/2 * NPOL * (NSAMPLES * blockIdx.y + sample_offset);
+  int aptf_voltages_partial_idx = NANTENNAS * NPOL * (NSAMPLES * blockIdx.y + sample_offset);
 
-  //Accumulators for 8-bit complex detection and additions 
-  int xx = 0, yy = 0, zz = 0, ww = 0;
-  
-  for (int offset = lane_idx; offset < NANTENNAS/2*NPOL*NACCUMULATE; offset += WARP_SIZE)
+  //Accumulators for 8-bit complex detection and additions
+  int xx = 0, yy = 0;
+
+  for (int offset = lane_idx; offset < NANTENNAS*NPOL*NACCUMULATE; offset += WARP_SIZE)
     {
-      char4 ant = aptf_voltages[aptf_voltages_partial_idx  + offset];
+      char2 ant = aptf_voltages[aptf_voltages_partial_idx  + offset];
       xx += ant.x * ant.x;
       yy += ant.y * ant.y;
-      zz += ant.z * ant.z;
-      ww += ant.w * ant.w;
     }
   //Form power and write to shared memory
-  temp[warp_idx][lane_idx] = (float)(xx + yy + zz + ww);
+  temp[warp_idx][lane_idx] = (float)(xx + yy);
   __syncthreads();
 
   //Warp reduce
@@ -214,13 +209,13 @@ int main()
   std::cout << "Executing warm up\n";
   //Warm up
   for (int jj=0; jj<NITERATIONS; ++jj)
-    icbf_aptf_general_k<<<grid,NTHREADS>>>((char4*)aptf_voltages,tbf_powers);
+    icbf_aptf_general_k<<<grid,NTHREADS>>>((char2*)aptf_voltages,tbf_powers);
   CUDA_ERROR_CHECK(cudaDeviceSynchronize());
 
   std::cout << "Starting benchmarking\n";
   cudaEventRecord(start);
   for (int ii=0; ii<NITERATIONS; ++ii)
-    icbf_aptf_general_k<<<grid,NTHREADS>>>((char4*)aptf_voltages,tbf_powers);
+    icbf_aptf_general_k<<<grid,NTHREADS>>>((char2*)aptf_voltages,tbf_powers);
   CUDA_ERROR_CHECK(cudaDeviceSynchronize());
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
