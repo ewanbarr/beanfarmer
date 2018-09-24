@@ -53,12 +53,11 @@ class Parameters(object):
         self.tsamp = 4096/856.0e6
         self.ntimestamps = 100
         self.warp_size = 32
-        self.nthreads = 1024
         self.check_correctness = False
         self.niterations = 100
 
     def sample_count(self):
-        return self.nthreads/self.warp_size * self.ibf_tscrunch * self.ntimestamps
+        return self.ntimestamps * NSAMPLES_PER_TIMESTAMP
 
     def duration(self):
         return self.sample_count() * self.tsamp
@@ -66,10 +65,6 @@ class Parameters(object):
     def _validate(self):
         if self.nantennas%2 != 0:
             raise ValueError("Number of antennas must be a multiple of 4")
-        if 32%self.warp_size != 0:
-            raise ValueError("Warp size must divide 32")
-        if self.nthreads%self.warp_size !=0:
-            raise ValueError("Number of threads must be a multiple of the warp size")
 
     def op_count(self):
         per_sample = (4*self.nantennas - 1)
@@ -157,34 +152,32 @@ def main(args):
             for tscrunch in args.ibf_tscrunch:
                 for nchan in args.nchannels:
                     for ntimestamps in args.ntimestamps:
-                        for nwarps_per_block in args.nwarps_per_block:
-                            params = Parameters()
-                            params.nantennas = nants
-                            params.npol = npol
-                            params.ibf_tscrunch = tscrunch
-                            params.nchannels = nchan
-                            params.ntimestamps = ntimestamps
-                            params.nthreads = nwarps_per_block * 32
-                            params.tsamp = 1/args.channel_bandwidth
-                            params.check_correctness = args.check_correctness
-                            params.niterations = args.niterations
-                            compile(params)
-                            elapsed_time = run()
-                            if elapsed_time is None: raise Exception("No timing output for kernel run.")
-                            seconds_per_run = (elapsed_time*1e-3)/params.niterations
-                            real_time_fraction = seconds_per_run/params.duration()
-                            performance = params.op_count()/seconds_per_run
-                            tops = performance/1e12
-                            print(nants,end="\t",file=f)
-                            print(npol,end="\t",file=f)
-                            print(nchan,end="\t",file=f)
-                            print(tscrunch,end="\t",file=f)
-                            print(fscrunch,end="\t",file=f)
-                            print(ntimestamps,end="\t",file=f)
-                            print("%g"%params.op_count(),end="\t",file=f)
-                            print("%g"%seconds_per_run,end="\t",file=f)
-                            print("%g"%tops,end="\t",file=f)
-                            print("%g"%real_time_fraction,end="\n",file=f)
+                        params = Parameters()
+                        params.nantennas = nants
+                        params.npol = npol
+                        params.ibf_tscrunch = tscrunch
+                        params.nchannels = nchan
+                        params.ntimestamps = ntimestamps
+                        params.tsamp = 1/args.channel_bandwidth
+                        params.check_correctness = args.check_correctness
+                        params.niterations = args.niterations
+                        compile(params)
+                        elapsed_time = run()
+                        if elapsed_time is None: raise Exception("No timing output for kernel run.")
+                        seconds_per_run = (elapsed_time*1e-3)/params.niterations
+                        real_time_fraction = seconds_per_run/params.duration()
+                        performance = params.op_count()/seconds_per_run
+                        tops = performance/1e12
+                        print(nants,end="\t",file=f)
+                        print(npol,end="\t",file=f)
+                        print(nchan,end="\t",file=f)
+                        print(tscrunch,end="\t",file=f)
+                        print(fscrunch,end="\t",file=f)
+                        print(ntimestamps,end="\t",file=f)
+                        print("%g"%params.op_count(),end="\t",file=f)
+                        print("%g"%seconds_per_run,end="\t",file=f)
+                        print("%g"%tops,end="\t",file=f)
+                        print("%g"%real_time_fraction,end="\n",file=f)
 
 
 if __name__ == "__main__":
