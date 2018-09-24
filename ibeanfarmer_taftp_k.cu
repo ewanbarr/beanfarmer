@@ -61,7 +61,7 @@ void icbf_taftp_general_k
     const int aftp = NANTENNAS * ftp;
     const int output_offset = output_size * blockIdx.x;
 
-    for (int timestamp_idx = blockIdx.x; timestamp_idx < ntimestamps; timestamp_idx += gridDim.x)
+    for (int timestamp_idx = blockIdx.x; timestamp_idx < NTIMESTAMPS; timestamp_idx += gridDim.x)
     {
 
         for (int sample_idx = threadIdx.x; sample_idx < NSAMPLES_PER_TIMESTAMP; sample_idx += blockDim.x)
@@ -74,7 +74,7 @@ void icbf_taftp_general_k
                 channel_idx < channel_idx + IBF_FSCRUNCH;
                 ++channel_idx)
             {
-                for (int antenna_idx = start_antenna; antenna_idx < end_antenna; ++antenna_idx)
+                for (int antenna_idx = 0; antenna_idx < NANTENNAS; ++antenna_idx)
                 {
                     int input_index = timestamp_idx * aftp + antenna_idx * ftp + channel_idx * tp + sample_idx;
                     char4 ant = taftp_voltages[input_index];
@@ -96,7 +96,7 @@ void icbf_taftp_general_k
             {
                 val += accumulation_buffer[threadIdx.y][sample_idx];
             }
-            output_staging[sample_idx/IBF_TSCRUNCH * gridDim.y + threadIdx.y] = val;
+            output_staging[threadIdx.x * gridDim.y + threadIdx.y] = val;
         }
 
         __threadfence_block();
