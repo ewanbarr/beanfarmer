@@ -44,7 +44,8 @@ __global__
 void icbf_taftp_general_k
 (
     char4 const* __restrict__ taftp_voltages,
-    float* __restrict__ tf_powers,
+    float* __restrict__ tf_powers
+)
 {
     static_assert(NSAMPLES_PER_TIMESTAMP % IBF_TSCRUNCH == 0,
         "tscrunch must divide 256");
