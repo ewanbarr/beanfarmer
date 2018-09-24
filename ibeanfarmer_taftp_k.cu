@@ -249,7 +249,7 @@ int main()
   thrust::host_vector<float> gpu_output = output_vector;
   thrust::host_vector<float> cpu_output(tf_powers_size);
   CUDA_ERROR_CHECK(cudaDeviceSynchronize());
-  icbf_reference_cpp(taftp_vector_h.data(), cpu_output.data());
+  icbf_reference_cpp((char4*)taftp_vector_h.data(), cpu_output.data());
   if (!is_same(cpu_output.data(), gpu_output.data(), tf_powers_size, 0.001))
     std::cout << "FAILED!\n";
   else
