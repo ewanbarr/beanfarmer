@@ -157,6 +157,7 @@ def main(args):
                         params.nantennas = nants
                         params.npol = npol
                         params.ibf_tscrunch = tscrunch
+                        params.ibf_fscrunch = fscrunch
                         params.nchannels = nchan
                         params.ntimestamps = ntimestamps
                         params.tsamp = 1/args.channel_bandwidth
