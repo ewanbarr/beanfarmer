@@ -148,6 +148,7 @@ void icbf_reference_cpp
             }
         }
     }
+}
 
 bool is_same(float* a, float*b, std::size_t size, float tolerance)
 {
@@ -227,13 +228,13 @@ int main()
   std::cout << "Executing warm up\n";
   //Warm up
   for (int jj = 0; jj < NITERATIONS; ++jj)
-    icbf_taftp_general_k<<<block, NTHREADS>>>((char4*)taftp_voltages, tf_powers);
+    icbf_taftp_general_k<<<nblocks, threads>>>((char4*)taftp_voltages, tf_powers);
   CUDA_ERROR_CHECK(cudaDeviceSynchronize());
 
   std::cout << "Starting benchmarking\n";
   cudaEventRecord(start);
   for (int ii = 0; ii < NITERATIONS; ++ii)
-    icbf_taftp_general_k<<<block, NTHREADS>>>((char4*)taftp_voltages, tf_powers);
+    icbf_taftp_general_k<<<nblocks, threads>>>((char4*)taftp_voltages, tf_powers);
   CUDA_ERROR_CHECK(cudaDeviceSynchronize());
 
   cudaEventRecord(stop);

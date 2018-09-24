@@ -78,6 +78,7 @@ class Parameters(object):
         print("#define NPOL %d"%self.npol,file=f)
         print("#define IBF_TSCRUNCH %d"%self.ibf_tscrunch,file=f)
         print("#define IBF_FSCRUNCH %d"%self.ibf_fscrunch,file=f)
+        print("#define NTIMESTAMPS %d"%self.ntimestamps,file=f)
         print("#define NSAMPLES_PER_TIMESTAMP %d"%NSAMPLES_PER_TIMESTAMP,file=f)
         print("#define NCHANNELS %d"%self.nchannels,file=f)
         print("#define TSAMP %f"%self.tsamp,file=f)
